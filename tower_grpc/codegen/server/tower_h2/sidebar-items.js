@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["RecvBody","Allows a stream to be read from the remote."]],"trait":[["Body","Trait representing a streaming body of a Request or Response."]]});

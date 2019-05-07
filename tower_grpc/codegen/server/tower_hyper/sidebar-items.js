@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Body","Specialized Body that takes a `hyper::Body` and implements `tower_http::Body`."]]});
