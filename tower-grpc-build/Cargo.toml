@@ -1,16 +1,17 @@
 [package]
-name = "tower-grpc-build"
+name = "oso-prost-build"
 version = "0.1.0"
 edition = "2018"
-authors = ["Tower Maintainers <team@tower-rs.com>"]
+authors = ["Tower Maintainers <team@tower-rs.com>", "Sam Scott <sam@osohq.com>"]
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/tower-rs/tower-grpc"
 homepage = "https://github.com/tower-rs/tower-grpc"
 documentation = "https://docs.rs/tower-grpc/0.1.0"
 description = """
-Code generation for tower-grpc
+Code generation for tower-grpc (Oso version)
 """
+publish = false
 
 [dependencies]
 codegen = "0.1.1"

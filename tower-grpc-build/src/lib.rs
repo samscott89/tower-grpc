@@ -88,11 +88,14 @@ impl prost_build::ServiceGenerator for ServiceGenerator {
         // `server::ServiceGenerator` will actually output any code to the
         // buffer; all code is written out in the implementation of the
         // `ServiceGenerator::finalize` function on this type.
+
+        let rpc_scope = self.root_scope.new_module("grpc").scope();
+
         if let Some(ref mut client_generator) = self.client {
-            client_generator.generate(&service, &mut self.root_scope);
+            client_generator.generate(&service, rpc_scope);
         }
         if let Some(ref mut server_generator) = self.server {
-            server_generator.generate(&service, &mut self.root_scope);
+            server_generator.generate(&service, rpc_scope);
         }
     }
 

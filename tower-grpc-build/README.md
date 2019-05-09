@@ -1,4 +1,4 @@
-# Tower gRPC build
+# Oso Prost build
 
 Generates code based on `.proto` definitions.
 
