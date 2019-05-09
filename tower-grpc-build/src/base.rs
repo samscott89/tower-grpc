@@ -1,36 +1,6 @@
-
-// struct Get(GetBar);
-
-// // (prost) struct GetBar;
-// // (prost) struct Bar;
-
-// trait Foo {
-// 	type GetFuture: Future<Item=Bar, Error=Error>;
-// 	fn get(req: GetBar) -> GetFuture
-// }
-
-// trait FooService: Service<Get>, Response=Bar, Error=Error> {}
-
-// impl<F: Foo> Service<Get> for F {
-// 	type Response = Bar;
-// 	type Error = Error;
-// 	type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
-
-// 	fn poll_ready(&mut self) -> Poll<(), Self::Error> {
-// 	    Ok(Async::Ready(()))
-// 	}
-
-// 	fn call(&mut self, req: Get) -> Self::Future {
-// 		self.get(req.0)
-// 	}
-// }
-
-// impl<F: Foo> FooService {}
-
 use codegen;
 use comments_to_rustdoc;
 use prost_build;
-use super::ImportType;
 
 /// Generates service code
 pub struct ServiceGenerator;
@@ -46,29 +16,27 @@ impl ServiceGenerator {
     fn define(&self,
               service: &prost_build::Service,
               scope: &mut codegen::Scope) {
-        // Create scope that contains the generated base traits.
         {
-            self.define_service_trait(service, scope);
-            self.define_server_struct(service, scope);
-            self.define_blanket_impl(service, scope)l
+            scope.import("::tower_grpc::codegen::server", "*");
 
-            // Define request structs
+            // Defines the `FooService` and `Foo` traits.
+            self.define_service_trait(service, scope);
+
+            // Define the `FooServer` struct
+            self.define_server_struct(service, scope);
+
+            // Implement `FooService` for any `FooServer<Foo>`.
+            self.define_blanket_impl(service, scope);
+
+            // Define request structs `Get(GetBar)` etc.
             for method in &service.methods {
-            	scope.new_struct(&method.name)
+                let upper_name = ::to_upper_camel(&method.name);
+            	scope.new_struct(&upper_name)
             	    .vis("pub")
             	    .derive("Debug")
             	    .derive("Clone")
-            	    .tuple_field(&method.input_type)
+            	    .tuple_field(&format!("pub {}", method.input_type))
             	    ;
-
-
-                // methods.import_type(&method.input_type, 2);
-
-                // if !method.server_streaming {
-                //     methods.import_type(&method.output_type, 2);
-                // }
-
-                // self.define_service_method(service, method, methods);
             }
         }
     }
@@ -77,14 +45,18 @@ impl ServiceGenerator {
                             service: &prost_build::Service,
                             scope: &mut codegen::Scope)
     {
+
+        // pub trait Foo: Clone { ... 
         let mut service_trait = codegen::Trait::new(&service.name);
         service_trait.vis("pub")
             .parent("Clone")
             .doc(&comments_to_rustdoc(&service.comments))
             ;
 
+        // pub trait FooService: Clone + ... {}
         let mut tower_service_trait = codegen::Trait::new(&format!("{}Service", service.name));
         tower_service_trait.vis("pub")
+            .doc("Auto-generated trait for compatibility with `tower::Service`")
             .parent("Clone");
 
 
@@ -92,58 +64,50 @@ impl ServiceGenerator {
             let name = &method.name;
             let upper_name = ::to_upper_camel(&method.proto_name);
 
+            // FooService: Service<Get, .. >
             let tower_bound = format!(
             	"tower_service::Service<{}, Response={}, Error=failure::Error>",
-            	method.name, method.output_type);
-            tower_service_trait.bound(tower_bound);
+            	upper_name, method.output_type);
+            tower_service_trait.parent(&tower_bound);
+
 
             let future_bound;
-
             let output_type = ::unqualified(&method.output_type, &method.output_proto_type, 1);
 
             if method.server_streaming {
                 let stream_name = format!("{}Stream", &upper_name);
                 let stream_bound = format!(
-                    "futures::Stream<Item = {}, Error = failure::Error>",
+                    "futures::Stream<Item = {}, Error = failure::Error> + 'static",
                     output_type);
 
                 future_bound = format!(
-                    "futures::Future<Item = Self::{}, Error = failure::Error>",
+                    "'static + futures::Future<Item = Self::{}, Error = failure::Error> + 'static",
                     stream_name);
 
+                // type GetStream: Stream<Item=...>
                 service_trait.associated_type(&stream_name)
                     .bound(&stream_bound);
             } else {
                 future_bound = format!(
-                    "futures::Future<Item = {}, Error = failure::Error>",
+                    "futures::Future<Item = {}, Error = failure::Error> + 'static",
                     output_type);
             }
 
             let future_name = format!("{}Future", &upper_name);
-
+            // type GetFuture ...
             service_trait.associated_type(&future_name)
+                // ... : Future<Item = ... >
                 .bound(&future_bound)
                 ;
 
-            for &ty in [&method.input_type, &method.output_type].iter() {
-                if ::should_import(ty) {
-                    let (path, ty) = ::super_import(ty, 1);
-
-                    scope.import(&path, &ty);
-                }
-            }
-
             let input_type = ::unqualified(&method.input_type, &method.input_proto_type, 1);
 
+            // Request type is either a Stream<Item=GetBar> or a straight GetBar
             let request_type = if method.client_streaming {
             	let stream_name = format!("{}Streaming", &upper_name);
             	let stream_bound = format!(
             	    "futures::Stream<Item = {}, Error = failure::Error>",
             	    ::unqualified(&method.input_type, &method.input_proto_type, 1));
-
-            	future_bound = format!(
-            	    "futures::Future<Item = Self::{}, Error = failure::Error>",
-            	    stream_name);
 
             	service_trait.associated_type(&stream_name)
             	    .bound(&stream_bound);
@@ -152,6 +116,7 @@ impl ServiceGenerator {
             	input_type
             };
 
+            // fn get(request: GetBar) -> Self::GetFuture
             service_trait.new_fn(&name)
                 .arg_mut_self()
                 .arg("request", &request_type)
@@ -161,6 +126,7 @@ impl ServiceGenerator {
         }
 
         scope.push_trait(service_trait);
+        scope.push_trait(tower_service_trait);
     }
 
     fn define_server_struct(&self,
@@ -170,14 +136,17 @@ impl ServiceGenerator {
         let name = format!("{}Server", service.name);
         let lower_name = ::lower_name(&service.name);
 
+        // FooServer<T>
         scope.new_struct(&name)
+            .doc(&format!("Auto-generated struct to wrap {}", &service.name))
             .vis("pub")
             .derive("Debug")
             .derive("Clone")
             .generic("T")
-            .field(&lower_name, "T")
+            .field(&format!("pub {}", lower_name), "T")
             ;
 
+        // fn new() -> FooServer<T>
         scope.new_impl(&name)
             .generic("T")
             .target_generic("T")
@@ -190,43 +159,31 @@ impl ServiceGenerator {
             ;
 
         // MakeService impl
-        // {
-        //     let imp = scope.new_impl(&name)
-        //         .generic("T")
-        //         .target_generic("T")
-        //         .impl_trait("tower::Service<()>")
-        //         .bound("T", &service.name)
-        //         .associate_type("Response", "Self")
-        //         .associate_type("Error", "grpc::Never")
-        //         .associate_type("Future", "futures::FutureResult<Self::Response, Self::Error>")
-        //         ;
+        {
+            let imp = scope.new_impl(&name)
+                .generic("T")
+                .target_generic("T")
+                .impl_trait("tower::Service<()>")
+                .bound("T", &service.name)
+                .associate_type("Response", "Self")
+                .associate_type("Error", "grpc::Never")
+                .associate_type("Future", "futures::FutureResult<Self::Response, Self::Error>")
+                ;
 
 
-        //     imp.new_fn("poll_ready")
-        //         .arg_mut_self()
-        //         .ret("futures::Poll<(), Self::Error>")
-        //         .line("Ok(futures::Async::Ready(()))")
-        //         ;
+            imp.new_fn("poll_ready")
+                .arg_mut_self()
+                .ret("futures::Poll<(), Self::Error>")
+                .line("Ok(futures::Async::Ready(()))")
+                ;
 
-        //     imp.new_fn("call")
-        //         .arg_mut_self()
-        //         .arg("_target", "()")
-        //         .ret("Self::Future")
-        //         .line("futures::ok(self.clone())")
-        //         ;
-        // }
-        // for method in &service.methods {
-        // 	let imp = scope.new_impl(&name)
-        // 	    .generic("T")
-        // 	    .target_generic("T")
-        // 	    .impl_trait(&format!("tower::Service<{}>", &method.name))
-        // 	    .bound("T", &service.name)
-        // 	    .associate_type("Response", method.input_type)
-        // 	    .associate_type("Error", "grpc::Never")
-        // 	    .associate_type("Future", "futures::FutureResult<Self::Response, Self::Error>")
-        // 	    ;
-
-        // }
+            imp.new_fn("call")
+                .arg_mut_self()
+                .arg("_target", "()")
+                .ret("Self::Future")
+                .line("futures::ok(self.clone())")
+                ;
+        }
     }
 
     fn define_blanket_impl(&self,
@@ -234,15 +191,18 @@ impl ServiceGenerator {
                             scope: &mut codegen::Scope)
     {
     	let server_name = format!("{}Server", service.name);
+        let lower_name = ::lower_name(&service.name);
         for method in &service.methods {
+            let upper_name = ::to_upper_camel(&method.name);
+            // impl<T: Foo> Service<Get> for FooServer<T> { .. }
     		let imp = scope.new_impl(&server_name)
     		    .generic("T")
     		    .target_generic("T")
-    		    .impl_trait(&format!("tower::Service<{}>", &method.name))
+    		    .impl_trait(&format!("tower::Service<{}>", &upper_name))
     		    .bound("T", &service.name)
-    		    .associate_type("Response", method.input_type)
+    		    .associate_type("Response", &method.output_type)
     		    .associate_type("Error", "failure::Error")
-    		    .associate_type("Future", "futures::FutureResult<Self::Response, Self::Error>")
+    		    .associate_type("Future", &format!("T::{}Future", upper_name))
     		    ;
 
 		    imp.new_fn("poll_ready")
@@ -253,11 +213,18 @@ impl ServiceGenerator {
 
 		    imp.new_fn("call")
 		        .arg_mut_self()
-		        .arg("request", method.input_type)
+		        .arg("request", &upper_name)
 		        .ret("Self::Future")
-		        .line("self.get(req.0)")
+		        .line(&format!("self.{}.{}(request.0)", lower_name, &method.name))
 		        ;
         }
+
+        scope.new_impl(&server_name)
+            .generic("T")
+            .bound("T", &service.name)
+            .target_generic("T")
+            .impl_trait(&format!("{}Service", &service.name))
+            ;
     }
 }
 
