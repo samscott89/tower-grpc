@@ -47,7 +47,6 @@ impl ServiceGenerator {
             .vis("pub")
             .generic("T")
             .derive("Debug")
-            .derive("Clone")
             .doc(&comments_to_rustdoc(&service.comments))
             .field("inner", "grpc::Grpc<T>")
             ;

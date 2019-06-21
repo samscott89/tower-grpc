@@ -61,11 +61,8 @@ macro_rules! {}_impl {{
         let lower_name = ::lower_name(&service.name);
         let server_name = &format!("{}Service", svc_name);
         let req_name = &format!("{}Request", svc_name);
-        // let req_genname = &format!("{}<T>", req_name);
         let resp_name = &format!("{}Response", svc_name);
-        // let resp_genname = &format!("{}", resp_name);
         let fut_name = &format!("{}ResponseFuture", svc_name);
-        // let fut_genname = &format!("{}", fut_name);
         let err_name = &format!("{}Error", svc_name);
 
         // impl<T: Foo> Service<FooRequest> for FooService<T>
@@ -82,16 +79,13 @@ macro_rules! {}_impl {{
             imp.new_fn("poll_ready")
                 .arg_mut_self()
                 .ret("futures::Poll<(), Self::Error>")
-                .line("Ok(futures::Async::Ready(()))")
+                .line(&format!("self.{}.poll_ready()", &lower_name))
                 ;
 
             imp.new_fn("call")
                 .arg_mut_self()
                 .arg("request", req_name)
                 .ret("Self::Future")
-                // .line(&format!("self.0.{}(request)", method.name))
-                // ;
-                // .ret("futures::Poll<Self::Item, Self::Error>")
                 .push_block({
                     let mut match_kind = codegen::Block::new("match request");
 
@@ -118,10 +112,19 @@ macro_rules! {}_impl {{
         // impl<T: Service<FooRequest>> Foo for T
         {
             let impgen = scope.new_impl("T");
-            impgen.generic("T")
+            impgen
+                .generic("T")
                 .bound("T", &format!("tower_service::Service<{}, Response={}>", req_name, resp_name))
                 .bound(&format!("<T as tower_service::Service<{}>>::Future", req_name), "Send + 'static")
+                .bound(&format!("<T as tower_service::Service<{}>>::Error", req_name), "std::fmt::Debug + 'static")
                 .impl_trait(svc_name);
+
+
+            impgen.new_fn("poll_ready")
+                .arg_mut_self()
+                .ret(&format!("futures::Poll<(), {}>", err_name))
+                .line(&format!("tower_service::Service::poll_ready(self).map_err({}::new)", err_name))
+                ;
 
             for method in &service.methods {
                 let name = &method.name;
@@ -143,14 +146,19 @@ macro_rules! {}_impl {{
                     .ret(&format!("Self::{}Future", &upper_name))
                     .doc(&comments_to_rustdoc(&method.comments))
                     .line(&format!("let fut = self.call({}::{}(request))", req_name, upper_name))
-                    .line(&format!(".map_err(|_| {})", err_name))
+                    .line(&format!(".map_err({}::new)", err_name))
                     .push_block({
                         let mut blk = codegen::Block::new(".and_then(|resp|");
                         blk.push_block({
                             let mut blk = codegen::Block::new("let res = match resp");
-                            blk.line(&format!("{}::{}(resp) => Ok(resp),", resp_name, upper_name))
-                                .line(&format!("_ => Err({})", err_name))
-                                .after(";");
+                            blk.line(&format!("{}::{}(resp) => Ok(resp),", resp_name, upper_name));
+                            for wrong_method in &service.methods {
+                                if method.name != wrong_method.name {
+                                    let wrong_name = ::to_upper_camel(&wrong_method.proto_name);
+                                    blk.line(&format!("{}::{}(_) => Err({}::new(\"unexpected return type. Wanted: {}, got: {}.\")),", resp_name, wrong_name, err_name, upper_name, wrong_name));
+                                }
+                            }
+                            blk.after(";");
                             blk
                         })
                         .line("res.into_future()")
@@ -197,33 +205,6 @@ macro_rules! {}_impl {{
             .arg_ref_self()
             .ret("Self")
             .line(&format!("Self {{ {}: self.{}.clone() }}", &lower_name, &lower_name));
-
-        // MakeService impl
-        {
-            let imp = scope.new_impl(&name)
-                .generic("T")
-                .target_generic("T")
-                .impl_trait("tower_service::Service<()>")
-                .bound("T", &format!("{} + Clone", &service.name))
-                .associate_type("Response", "Self")
-                .associate_type("Error", "()")
-                .associate_type("Future", "futures::future::FutureResult<Self::Response, Self::Error>")
-                ;
-
-
-            imp.new_fn("poll_ready")
-                .arg_mut_self()
-                .ret("futures::Poll<(), Self::Error>")
-                .line("Ok(futures::Async::Ready(()))")
-                ;
-
-            imp.new_fn("call")
-                .arg_mut_self()
-                .arg("_target", "()")
-                .ret("Self::Future")
-                .line("futures::future::ok(self.clone())")
-                ;
-        }
     }
 
     ///Implement `Future` for `ServiceFutureResponse`.
@@ -239,10 +220,7 @@ macro_rules! {}_impl {{
         let err_name = &format!("{}Error", svc_name);
 
         scope.new_impl(fut_name)
-            // .generic("T")
-            // .target_generic("T")
             .impl_trait("futures::Future")
-            // .bound("T", svc_name)
             .associate_type("Item", resp_name)
             .associate_type("Error", err_name)
             .new_fn("poll")
@@ -330,9 +308,6 @@ macro_rules! {}_impl {{
                 service.proto_name);
 
         scope.new_impl(req_name)
-            // .generic("T")
-            // .target_generic("T")
-            // .bound("T", &format!("{} + Send", svc_name))
             .impl_trait("Request")
             .associate_type("Response", resp_name)
             .associate_type("Future", fut_name)
@@ -407,15 +382,14 @@ macro_rules! {}_impl {{
                 .ret(&format!("Self::{}Future", &upper_name))
                 .doc(&comments_to_rustdoc(&method.comments))
                 ;
+
         }
+        service_trait.new_fn("poll_ready")
+            .arg_mut_self()
+            .ret(&format!("futures::Poll<(), {}>",err_name))
+            .line("Ok(futures::Async::Ready(()))")
+            ;
 
         scope.push_trait(service_trait);
     }
-
-    // fn define_const(&self, service: &prost_build::Service, scope: &mut codegen::Scope) {
-    //     let path = format!("/{}.{}/",
-    //             service.package,
-    //             service.proto_name);
-    //     scope.raw(&format!("pub const PATH: &str = \"{}\";", path));
-    // }
 }

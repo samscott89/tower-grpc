@@ -75,7 +75,7 @@ macro_rules! try_ready {
     {
         let mut service_trait = codegen::Trait::new(&service.name);
         service_trait.vis("pub")
-            .parent("Clone")
+            // .parent("Clone")
             .doc(&comments_to_rustdoc(&service.comments))
             ;
 
@@ -147,7 +147,6 @@ macro_rules! try_ready {
         scope.new_struct(&name)
             .vis("pub")
             .derive("Debug")
-            .derive("Clone")
             .generic("T")
             .field(&lower_name, "T")
             ;
@@ -170,7 +169,7 @@ macro_rules! try_ready {
         service_impl.impl_trait("tower_service::Service<http::Request<grpc::BoxBody>>")
             .generic("T")
             .target_generic("T")
-            .bound("T", &service.name)
+            .bound("T", &format!("{} + Clone", service.name))
             .associate_type("Response", &response_type)
             .associate_type("Error", "grpc::Never")
             .associate_type("Future", &format!("{}::ResponseFuture<T>", lower_name))
@@ -254,68 +253,6 @@ macro_rules! try_ready {
         }
 
         scope.push_impl(service_impl);
-
-        // MakeService impl
-        {
-            let imp = scope.new_impl(&name)
-                .generic("T")
-                .target_generic("T")
-                .impl_trait("tower_service::Service<()>")
-                .bound("T", &service.name)
-                .associate_type("Response", "Self")
-                .associate_type("Error", "grpc::Never")
-                .associate_type(
-                    "Future",
-                    "futures::FutureResult<Self::Response, Self::Error>",
-                );
-
-            imp.new_fn("poll_ready")
-                .arg_mut_self()
-                .ret("futures::Poll<(), Self::Error>")
-                .line("Ok(futures::Async::Ready(()))");
-
-            imp.new_fn("call")
-                .arg_mut_self()
-                .arg("_target", "()")
-                .ret("Self::Future")
-                .line("futures::ok(self.clone())");
-        }
-
-        #[cfg(feature = "tower-hyper")]
-        // Service that converts tower_grpc::BoxBody to tower_hyper bodies
-        {
-            let imp = scope
-                .new_impl(&name)
-                .generic("T")
-                .target_generic("T")
-                .impl_trait("tower::Service<http::Request<tower_hyper::Body>>")
-                .bound("T", &service.name)
-                .associate_type(
-                    "Response",
-                    "<Self as tower::Service<http::Request<grpc::BoxBody>>>::Response",
-                )
-                .associate_type(
-                    "Error",
-                    "<Self as tower::Service<http::Request<grpc::BoxBody>>>::Error",
-                )
-                .associate_type(
-                    "Future",
-                    "<Self as tower::Service<http::Request<grpc::BoxBody>>>::Future",
-                );
-
-            imp.new_fn("poll_ready")
-                .arg_mut_self()
-                .ret("futures::Poll<(), Self::Error>")
-                .line("Ok(futures::Async::Ready(()))")
-                ;
-
-            imp.new_fn("call")
-                .arg_mut_self()
-                .arg("_target", "()")
-                .ret("Self::Future")
-                .line("futures::ok(self.clone())")
-                ;
-        }
     }
 
     fn define_response_future(&self,
