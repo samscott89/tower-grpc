@@ -1,5 +1,5 @@
 [package]
-name = "oso-prost-build"
+name = "tower-grpc-build"
 version = "0.1.0"
 edition = "2018"
 authors = ["Tower Maintainers <team@tower-rs.com>", "Sam Scott <sam@osohq.com>"]

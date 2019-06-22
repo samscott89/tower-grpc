@@ -34,7 +34,6 @@ h2 = "0.1.11"
 log = "0.4"
 percent-encoding = "1.0.1"
 tower-hyper = { version = "0.1", optional = true }
-http-body = "0.1"
 tower-service = "0.2"
 tower-util = "0.1"
 

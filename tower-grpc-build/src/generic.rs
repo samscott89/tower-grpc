@@ -1,6 +1,4 @@
-use codegen;
-use comments_to_rustdoc;
-use prost_build;
+use crate::comments_to_rustdoc;
 
 /// Generates service code
 pub struct ServiceGenerator;
@@ -58,7 +56,7 @@ macro_rules! {}_impl {{
                             scope: &mut codegen::Scope)
     {
         let svc_name = &service.name;
-        let lower_name = ::lower_name(&service.name);
+        let lower_name = crate::lower_name(&service.name);
         let server_name = &format!("{}Service", svc_name);
         let req_name = &format!("{}Request", svc_name);
         let resp_name = &format!("{}Response", svc_name);
@@ -90,7 +88,7 @@ macro_rules! {}_impl {{
                     let mut match_kind = codegen::Block::new("match request");
 
                     for method in &service.methods {
-                        let upper_name = ::to_upper_camel(&method.proto_name);
+                        let upper_name = crate::to_upper_camel(&method.proto_name);
 
                         let match_line = format!(
                             "{}::{}(request) =>", &req_name, &upper_name
@@ -128,7 +126,7 @@ macro_rules! {}_impl {{
 
             for method in &service.methods {
                 let name = &method.name;
-                let upper_name = ::to_upper_camel(&method.proto_name);
+                let upper_name = crate::to_upper_camel(&method.proto_name);
                 let input_name = &method.input_type;
                 let output_name = &method.output_type;
 
@@ -154,7 +152,7 @@ macro_rules! {}_impl {{
                             blk.line(&format!("{}::{}(resp) => Ok(resp),", resp_name, upper_name));
                             for wrong_method in &service.methods {
                                 if method.name != wrong_method.name {
-                                    let wrong_name = ::to_upper_camel(&wrong_method.proto_name);
+                                    let wrong_name = crate::to_upper_camel(&wrong_method.proto_name);
                                     blk.line(&format!("{}::{}(_) => Err({}::new(\"unexpected return type. Wanted: {}, got: {}.\")),", resp_name, wrong_name, err_name, upper_name, wrong_name));
                                 }
                             }
@@ -177,7 +175,7 @@ macro_rules! {}_impl {{
                             scope: &mut codegen::Scope)
     {
         let name = format!("{}Service", service.name);
-        let lower_name = ::lower_name(&service.name);
+        let lower_name = crate::lower_name(&service.name);
 
         scope.new_struct(&name)
             .vis("pub")
@@ -230,7 +228,7 @@ macro_rules! {}_impl {{
                 let mut match_kind = codegen::Block::new("match self");
 
                 for method in &service.methods {
-                    let upper_name = ::to_upper_camel(&method.proto_name);
+                    let upper_name = crate::to_upper_camel(&method.proto_name);
 
                     let match_line = format!(
                         "{}::{}(ref mut fut) =>", &fut_name, &upper_name
@@ -278,7 +276,7 @@ macro_rules! {}_impl {{
 
         for method in &service.methods {
             let _name = &method.name;
-            let upper_name = ::to_upper_camel(&method.proto_name);
+            let upper_name = crate::to_upper_camel(&method.proto_name);
             let input_name = &method.input_type;
             let output_name = &method.output_type;
 
@@ -336,7 +334,7 @@ macro_rules! {}_impl {{
 
         for method in &service.methods {
             let name = &method.name;
-            let upper_name = ::to_upper_camel(&method.proto_name);
+            let upper_name = crate::to_upper_camel(&method.proto_name);
             let future_bound = if method.server_streaming {
                 // let stream_name = format!("{}Stream", &upper_name);
                 // let stream_bound = format!(
