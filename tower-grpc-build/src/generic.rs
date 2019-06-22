@@ -130,13 +130,18 @@ macro_rules! {}_impl {{
                 let input_name = &method.input_type;
                 let output_name = &method.output_type;
 
-                impgen.associate_type(&format!("{}Future", upper_name), &format!("Box<futures::Future<Item={}, Error={}> + Send>", output_name, err_name));
 
                 let request_type = if method.client_streaming {
                     format!("Box<futures::Stream<Item={}, Error={}> + Send + 'static>", input_name, err_name)
                 } else {
                     input_name.to_string()
                 };
+                let response_type = if method.server_streaming {
+                    format!("Box<futures::Stream<Item={}, Error={}> + Send + 'static>", output_name, err_name)
+                } else {
+                    output_name.to_string()
+                };
+                impgen.associate_type(&format!("{}Future", upper_name), &format!("Box<futures::Future<Item={}, Error={}> + Send>", response_type, err_name));
 
                 impgen.new_fn(&name)
                     .arg_mut_self()
@@ -263,13 +268,24 @@ macro_rules! {}_impl {{
         let fut_name = &format!("{}ResponseFuture", svc_name);
         let err_name = &format!("{}Error", svc_name);
 
+        let mut has_server_streaming = false;
+        let mut has_client_streaming = false;
+        for method in &service.methods {
+            has_client_streaming |= method.client_streaming;
+            has_server_streaming |= method.server_streaming;
+        }
+
         let mut reqs = codegen::Enum::new(req_name);
-        reqs.derive("Debug");
-        reqs.derive("Clone");
+        if !has_client_streaming {
+            reqs.derive("Debug");
+            reqs.derive("Clone");
+        }
         reqs.vis("pub");
         let mut resps = codegen::Enum::new(resp_name);
-        resps.derive("Debug");
-        resps.derive("Clone");
+        if !has_server_streaming {
+            resps.derive("Debug");
+            resps.derive("Clone");
+        }
         resps.vis("pub");
         let mut futs = codegen::Enum::new(fut_name);
         futs.vis("pub");
@@ -341,7 +357,7 @@ macro_rules! {}_impl {{
                 //     "futures::Stream<Item = {}, Error = {}> + Send",
                 //     &method.output_type, err_name);
                 format!(
-                    "futures::Future<Item= {}, Error={}> + Send",
+                    "futures::Future<Item= {}, Error={}> + Send + 'static",
                     format!("Box<futures::Stream<Item={}, Error={}> + Send + 'static>", &method.output_type, err_name),
                     err_name)
 
