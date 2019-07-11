@@ -59,7 +59,8 @@ impl Config {
 
     /// Generate code
     pub fn build<P>(&mut self, protos: &[P], includes: &[P]) -> io::Result<()>
-    where P: AsRef<Path>,
+    where
+        P: AsRef<Path>,
     {
         let client = if self.build_client {
             Some(client::ServiceGenerator)
@@ -87,7 +88,6 @@ impl Config {
 }
 
 impl prost_build::ServiceGenerator for ServiceGenerator {
-
     fn generate(&mut self, service: prost_build::Service, _buf: &mut String) {
         // Note that neither this implementation of `generate` nor the
         // implementations for `client::ServiceGenerator` and
@@ -153,10 +153,10 @@ impl ImportType for codegen::Module {
 // ===== utility fns =====
 
 fn method_path(service: &prost_build::Service, method: &prost_build::Method) -> String {
-    format!("\"/{}.{}/{}\"",
-            service.package,
-            service.proto_name,
-            method.proto_name)
+    format!(
+        "\"/{}.{}/{}\"",
+        service.package, service.proto_name, method.proto_name
+    )
 }
 
 fn lower_name(name: &str) -> String {
@@ -182,9 +182,7 @@ fn should_import(ty: &str) -> bool {
 }
 
 fn is_imported_type(ty: &str) -> bool {
-    ty.split("::")
-        .map(|t| t == "super")
-        .next().unwrap()
+    ty.split("::").map(|t| t == "super").next().unwrap()
 }
 
 fn is_native_type(ty: &str) -> bool {
@@ -227,7 +225,6 @@ fn unqualified(ty: &str, proto_ty: &str, level: usize) -> String {
     v.join("::")
 }
 
-
 /// Converts a `snake_case` identifier to an `UpperCamel` case Rust type
 /// identifier.
 ///
@@ -255,7 +252,5 @@ fn comments_to_rustdoc(comments: &prost_build::Comments) -> String {
     comments
         .leading
         .iter()
-        .fold(String::new(), |acc, s|{
-            acc + s.trim_start() + "\n"
-        })
+        .fold(String::new(), |acc, s| acc + s.trim_start() + "\n")
 }
