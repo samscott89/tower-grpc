@@ -70,7 +70,7 @@ macro_rules! {}_impl {{
                 .bound("T", svc_name)
                 .associate_type("Response", resp_name)
                 .associate_type("Error", err_name)
-                .associate_type("Future", fut_name);
+                .associate_type("Future", &format!("tracing_futures::Instrumented<{}>", fut_name));
 
             imp.new_fn("poll_ready")
                 .arg_mut_self()
@@ -82,7 +82,7 @@ macro_rules! {}_impl {{
                 .arg("request", req_name)
                 .ret("Self::Future")
                 .push_block({
-                    let mut match_kind = codegen::Block::new("match request");
+                    let mut match_kind = codegen::Block::new("let fut = match request");
 
                     for method in &service.methods {
                         let upper_name = crate::to_upper_camel(&method.proto_name);
@@ -98,8 +98,12 @@ macro_rules! {}_impl {{
 
                         match_kind.push_block(blk);
                     }
+                    match_kind.after(";");
                     match_kind
-                });
+                })
+                .line(&format!("log::trace!(\"returning instrumented {}\");", fut_name))
+                .line(&format!("let span = tracing::trace_span!(\"{}\");", lower_name))
+                .line("tracing_futures::Instrument::instrument(fut, span)");
         }
 
         // impl<T: Service<FooRequest>> Foo for T
@@ -168,6 +172,9 @@ macro_rules! {}_impl {{
                     .arg("request", request_type)
                     .ret(&format!("Self::{}Future", &upper_name))
                     .doc(&comments_to_rustdoc(&method.comments))
+                    .line(&format!("log::trace!(\"{}::{}\");", svc_name, name))
+                    // .line(&format!("let span = tracing::trace_span!(\"{}\", request = ?request.clone());", name))
+                    .line(&format!("let span = tracing::trace_span!(\"{}\");", name))
                     .line(&format!("let fut = self.call({}::{}(request))", req_name, upper_name))
                     .line(&format!(".map_err({}::new)", err_name))
                     .push_block({
@@ -188,7 +195,7 @@ macro_rules! {}_impl {{
                         .after(");");
                         blk
                     })
-                    .line("Box::new(fut)");
+                    .line("Box::new(tracing_futures::Instrument::instrument(fut, span))");
             }
         }
     }
